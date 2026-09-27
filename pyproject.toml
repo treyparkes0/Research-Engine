@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "research-intelligence-engine"
+version = "0.1.0"
+description = "Personal research briefs for markets, business, world news, and sports"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "feedparser>=6.0.11",
+  "httpx>=0.27.0",
+  "python-dotenv>=1.0.1",
+]
+
+[project.scripts]
+rie-ingest = "research_intel.jobs.ingest_news:main"
+rie-stats = "research_intel.jobs.show_stats:main"
+rie-pick-topics = "research_intel.jobs.pick_topics:main"
+rie-show-topics = "research_intel.jobs.show_topics:main"
+rie-write-brief = "research_intel.jobs.write_brief:main"
+rie-daily = "research_intel.jobs.run_daily:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
