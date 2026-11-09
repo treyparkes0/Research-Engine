@@ -5,6 +5,8 @@ Personal research briefs for markets, business, world news, sports, and movies (
 
 ## What it does
 
+Personal daily brief, built to be used, not a public news product. The pipeline is ingest, cluster, rank, write from the feed lead, and email. Public RSS only: headline, the publisher’s short blurb, and a link. No paywall scraping. Checks for the known failure cases live in `tests/test_brief_quality.py`. 
+
 1. Pull free public RSS news into SQLite  
 2. Pick top 5 topics per domain  
 3. Write a morning/evening research brief  
@@ -12,10 +14,6 @@ Personal research briefs for markets, business, world news, sports, and movies (
 5. Clean old articles/files so storage stays small  
 
 A card uses the headline it claims. Enrichment is kept only when it is the same story. Stock lines appear only when the headline is about rates, oil, AI, cyber, or biotech. Betting-app promos are dropped. The same story is not repeated in two sections.
-
-## What it does
-
-Personal daily brief, built to be used, not a public news product. The pipeline is ingest, cluster, rank, write from the feed lead, and email. Public RSS only: headline, the publisher’s short blurb, and a link. No paywall scraping. Checks for the known failure cases live in `tests/test_brief_quality.py`.  
 
 ## Free and legal
 
