@@ -1,21 +1,23 @@
 # Research Intelligence Engine
 
-Personal research briefs for markets, business, world news, sports, and movies (TMDB + film RSS).
+A daily research brief I run for myself. It pulls public RSS, clusters and ranks stories in my own code, writes the brief locally, and emails it to me. Domains are markets, business, world news, sports, and movies.
 
+Public RSS only: the headline, the publisher’s short blurb, and a link. The brief uses original wording and links back to the source. Checks for the known failure cases live in `tests/test_brief_quality.py`.
 
-## What it does
+One real evening run: [docs/sample-brief.md](docs/sample-brief.md). The email version of that same brief is below, and the HTML is [docs/evening-brief.html](docs/evening-brief.html).
 
-1. Pull free public RSS news into SQLite  
-2. Pick top 5 topics per domain  
-3. Write a morning/evening research brief  
-4. Email it to you (Gmail)  
-5. Clean old articles/files so storage stays small  
+![Evening brief](docs/evening-brief.png)
+
+## Pipeline
+
+1. **Ingest** — pull free public RSS (and TMDB for movies) into SQLite
+2. **Cluster** — group headlines that are the same story
+3. **Rank** — keep the top 5 topics per domain
+4. **Write** — build each card from the feed lead
+5. **Email** — send the morning or evening brief
+6. **Prune** — drop old articles and brief files so storage stays small
 
 A card uses the headline it claims. Enrichment is kept only when it is the same story. Stock lines appear only when the headline is about rates, oil, AI, cyber, or biotech. Betting-app promos are dropped. The same story is not repeated in two sections.
-
-## For a recruiter
-
-Personal daily brief, built to be used, not a public news product. The pipeline is ingest, cluster, rank, write from the feed lead, and email. Public RSS only: headline, the publisher’s short blurb, and a link. No paywall scraping. Checks for the known failure cases live in `tests/test_brief_quality.py`.  
 
 ## Free and legal
 

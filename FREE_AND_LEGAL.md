@@ -11,7 +11,7 @@ These rules are practical guidelines, not formal legal advice.
 | News | Public RSS feeds publishers already offer |
 | Database | SQLite on your computer |
 | Ranking topics | Your own code (no paid API needed) |
-| Writing briefs | Local model with Ollama, or a free API trial later |
+| Writing briefs | Your own template code, from the feed headline and blurb |
 | Delivery | Save a file to disk first; email yourself with Gmail if you want |
 
 No paid news API is required.
@@ -34,7 +34,7 @@ No paid news API is required.
 
 ## Writing briefs the right way
 
-The AI (or your code) should:
+The template writer should:
 
 1. Read only what we already saved from the feed
 2. Write original wording
@@ -57,7 +57,7 @@ You can run the whole pipeline at **$0**:
 
 1. Pull RSS → SQLite  
 2. Rank topics with code  
-3. Write briefs with a local model (Ollama)  
+3. Write briefs with your own template code  
 4. Save HTML/Markdown to `data/briefs/`  
 
-Email and cloud AI are optional upgrades later.
+Email is optional. A local model such as Ollama can be added later.
