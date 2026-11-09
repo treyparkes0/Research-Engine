@@ -13,7 +13,7 @@ Personal research briefs for markets, business, world news, sports, and movies (
 
 A card uses the headline it claims. Enrichment is kept only when it is the same story. Stock lines appear only when the headline is about rates, oil, AI, cyber, or biotech. Betting-app promos are dropped. The same story is not repeated in two sections.
 
-## For a recruiter
+## What it does
 
 Personal daily brief, built to be used, not a public news product. The pipeline is ingest, cluster, rank, write from the feed lead, and email. Public RSS only: headline, the publisher’s short blurb, and a link. No paywall scraping. Checks for the known failure cases live in `tests/test_brief_quality.py`.  
 
