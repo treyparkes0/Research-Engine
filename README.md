@@ -1,4 +1,4 @@
-# Research Intelligence Engine
+# Automated News Monitoring and Reporting
 
 A local pipeline that turns public RSS into a daily research brief for markets, business, world news, sports, and film. It clusters headlines into events, ranks those events with an explicit formula, and writes a short brief with source links.
 
