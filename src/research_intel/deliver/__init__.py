@@ -1,1 +1,1 @@
-"""Email delivery helpers."""
+"""HTML email and the SMTP send step."""

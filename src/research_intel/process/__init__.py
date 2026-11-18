@@ -1,1 +1,1 @@
-"""Article clustering and topic ranking (local code, no AI)."""
+"""Clustering, ranking, and storage cleanup. All of it is local rules, not a model."""

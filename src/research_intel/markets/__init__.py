@@ -1,1 +1,1 @@
-"""Market watchlist quotes and educational news-to-sleeve impact."""
+"""Watchlist quotes and the rules that attach a ticker to a headline."""

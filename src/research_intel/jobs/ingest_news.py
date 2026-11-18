@@ -1,3 +1,5 @@
+"""CLI: download feeds into SQLite. Does not rank or write a brief."""
+
 from __future__ import annotations
 
 from research_intel.db import init_db
@@ -5,6 +7,7 @@ from research_intel.ingest.feeds import run_ingest
 
 
 def main() -> None:
+    """Parse arguments and run the feed download."""
     conn = init_db()
     print(f"Database ready: {conn.execute('PRAGMA database_list').fetchone()['file']}")
     stats = run_ingest(conn)

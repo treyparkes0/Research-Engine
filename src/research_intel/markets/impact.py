@@ -1,3 +1,11 @@
+"""Attach a watchlist ticker only when the headline is about that market.
+
+The match is the title, not the theme tags. Sports and movies get no ticker.
+Reasons describe recent context and say they are not a forecast. A story about
+one company, a country-specific inflation print, or a personal headline does
+not inherit a broad index.
+"""
+
 from __future__ import annotations
 
 import re
@@ -8,50 +16,28 @@ from research_intel.markets.watchlist import Quote
 
 
 DISCLAIMER = (
-    "Educational only — not investment advice. "
-    "Related tickers show sleeves people often watch with this theme; day % is context, not a forecast."
+    "Educational context only — not a prediction or an investment recommendation. "
+    "A ticker is shown only when the headline is about that market, sector, or company. "
+    "The percentage is a recent move, not a claim that this story caused it."
 )
 
 
-# Plain-language explanations keyed by symbol (1–2 sentences).
+# One sentence each. The first clause is the context; it is not a forecast.
 _TICKER_WHY: dict[str, str] = {
-    "SPY": (
-        "This kind of headline can nudge the whole U.S. stock market. "
-        "SPY holds a broad basket of large American companies, so it is a simple way to see that reaction."
-    ),
-    "VOO": (
-        "Stories like this often show up across the S&P 500. "
-        "VOO tracks those same large companies, so it tends to move with the overall market mood."
-    ),
-    "VTI": (
-        "When the news hits the wider economy or many industries at once, the whole market can feel it. "
-        "VTI owns large, mid, and small U.S. stocks, so it reflects that broader backdrop."
-    ),
-    "SCHG": (
-        "Growth companies are often more sensitive to rates, tech news, and big-picture optimism. "
-        "SCHG focuses on large-cap growth names, so it can move more when those themes are in play."
-    ),
-    "QQQ": (
-        "Tech and growth names often lead when AI, chips, or big Nasdaq stories dominate. "
-        "QQQ is heavy in those companies, so it is a common place to watch that effect."
-    ),
-    "FNARX": (
-        "Energy and resource prices can jump when oil, geopolitics, or commodity news hits. "
-        "FNARX holds natural-resource companies, so it is a way to see that pressure."
-    ),
-    "IBB": (
-        "Drug approvals, biotech headlines, and healthcare policy can move the sector quickly. "
-        "IBB groups biotech stocks together, so it reflects that industry reaction."
-    ),
-    "CIBR": (
-        "Hacks, breaches, and cybersecurity spending news can lift or shake cyber-focused firms. "
-        "CIBR holds companies in that space, so it tracks how the theme is trading."
-    ),
+    "SPY": "SPY is broad U.S. stock-market context, not a forecast or a claim that this story moved the fund.",
+    "VOO": "VOO is broad S&P 500 context, not a forecast or a claim that this story moved the fund.",
+    "VTI": "VTI is broad U.S. stock-market context, not a forecast or a claim that this story moved the fund.",
+    "SCHG": "SCHG is large-cap growth context, not a forecast or a recommendation.",
+    "QQQ": "QQQ is large-cap tech context for an AI, chip, or Nasdaq-related headline, not a forecast or a recommendation.",
+    "FNARX": "FNARX is natural-resources context for an energy-supply headline, not a forecast or a recommendation.",
+    "IBB": "IBB is biotech-sector context, not a forecast or a recommendation.",
+    "CIBR": "CIBR is cybersecurity-sector context, not a forecast or a recommendation.",
 }
 
 
 @dataclass
 class TickerContext:
+    """One ticker line: symbol, recent move, and the sentence that explains why it is listed."""
     symbol: str
     name: str
     price: float | None
@@ -59,6 +45,7 @@ class TickerContext:
     reason: str
 
     def to_dict(self) -> dict:
+        """Ticker line as a plain dict, for JSON."""
         return asdict(self)
 
     def display_line(self) -> str:
@@ -67,59 +54,148 @@ class TickerContext:
 
 
 def _reason_for(symbol: str, angle: str, title: str) -> str:
+    """One sentence of context for a ticker, ending with not a forecast."""
+    del title
     base = _TICKER_WHY.get(symbol)
     if base:
         return base
-    # Fallback if a new symbol is added without a template.
-    short = title.strip().rstrip(".")
-    if len(short) > 90:
-        short = short[:87].rsplit(" ", 1)[0] + "..."
     return (
-        f"This fund is often watched when headlines like \"{short}\" land. "
-        f"In short: {angle}."
+        f"{symbol} is {angle} context only. "
+        "This is not a forecast or a recommendation, and it is not a claim that the headline moved the fund."
     )
 
 
 def _title_has(title: str, phrase: str) -> bool:
+    """True when the headline contains any of these phrases."""
     return re.search(rf"\b{re.escape(phrase)}\b", title, re.IGNORECASE) is not None
 
 
+def _foreign_macro(title: str) -> bool:
+    """True when the headline is about another country's rates or inflation."""
+    return re.search(
+        r"\b(china|chinese|eurozone|europe|uk|u\.k\.|britain|india|japan|japanese)\b",
+        title,
+        re.IGNORECASE,
+    ) is not None
+
+
+def _rates_story(title: str) -> bool:
+    """True for a US rates headline, including a Fed decision."""
+    if any(
+        _title_has(title, phrase)
+        for phrase in (
+            "federal reserve",
+            "fomc",
+            "interest rate",
+            "interest rates",
+            "rate cut",
+            "rate hike",
+            "rate cuts",
+            "rate hikes",
+        )
+    ):
+        return True
+    return bool(re.search(r"\bfed\b", title, re.I) and re.search(r"\b(rate|rates|hike|cut|powell)\b", title, re.I))
+
+
+def _us_inflation_story(title: str) -> bool:
+    """True for a US inflation print. A China or Europe print does not match."""
+    if _foreign_macro(title):
+        return False
+    if any(_title_has(title, phrase) for phrase in ("cpi", "consumer price index", "ppi", "producer price")):
+        return True
+    has_us = re.search(r"\b(u\.s\.|usa|fed|federal|american)\b", title, re.I) or re.search(
+        r"\bUS\b", title
+    )
+    return bool(_title_has(title, "inflation") and has_us)
+
+
+def _ai_or_chip_market(title: str) -> bool:
+    """Sector context for an AI or chip *market* story, not any mention of a company."""
+    if _title_has(title, "artificial intelligence") or _title_has(title, "generative ai"):
+        return True
+    mentions_ai = re.search(r"\bai\b", title, re.I) is not None
+    marketish = any(
+        _title_has(title, phrase)
+        for phrase in (
+            "stock",
+            "stocks",
+            "shares",
+            "earnings",
+            "market",
+            "chip",
+            "chips",
+            "nvidia",
+            "microsoft",
+            "google",
+            "meta",
+            "amazon",
+            "apple",
+            "device",
+            "semiconductor",
+        )
+    )
+    if mentions_ai and marketish:
+        return True
+    if any(
+        _title_has(title, phrase)
+        for phrase in ("chip stocks", "chip stock", "chip demand", "semiconductor stocks", "semiconductor shortage")
+    ):
+        return True
+    return bool(
+        _title_has(title, "nvidia")
+        and any(_title_has(title, phrase) for phrase in ("earnings", "shares", "stock", "revenue", "guidance"))
+    )
+
+
+def _energy_story(title: str) -> bool:
+    """True when the headline is about oil, gas, or a supply chokepoint."""
+    return any(
+        _title_has(title, phrase)
+        for phrase in ("crude oil", "crude prices", "oil prices", "oil price", "opec", "natural gas", "hormuz")
+    )
+
+
+def _cyber_story(title: str) -> bool:
+    """True for a breach, ransomware, or cyberattack headline."""
+    return any(
+        _title_has(title, phrase)
+        for phrase in ("ransomware", "data breach", "cyberattack", "cyber attack", "cybersecurity")
+    )
+
+
+def _biotech_story(title: str) -> bool:
+    """True for an FDA, drugmaker, or biotech headline."""
+    return any(
+        _title_has(title, phrase) for phrase in ("fda approval", "drugmaker", "pharmaceutical", "biotech")
+    )
+
+
+def _broad_market_story(title: str) -> bool:
+    """True when the headline is about the stock market itself."""
+    return any(
+        _title_has(title, phrase)
+        for phrase in ("stock market", "stock futures", "stocks rise", "stocks fall", "wall street", "s&p 500", "s&p")
+    )
+
+
 def _symbols_for_topic(themes: list[str], title: str, domain: str) -> list[tuple[str, str]]:
-    """Tickers only when the headline itself is a market story. Themes are ignored."""
+    """Tickers only when the headline itself supports that market context. Themes are ignored."""
     del themes
-    if domain in {"sports", "movies"}:
+    if domain in {"sports", "movies"} or not title.strip():
         return []
 
-    rules: tuple[tuple[tuple[str, ...], tuple[str, ...], str], ...] = (
-        (
-            ("crude", "opec", "oil", "natural gas", "hormuz"),
-            ("FNARX",),
-            "energy prices",
-        ),
-        (
-            ("federal reserve", "fomc", "fed", "interest rate", "interest rates", "rate cut", "rate hike", "inflation"),
-            ("SPY", "SCHG"),
-            "interest rates",
-        ),
-        (
-            ("nvidia", "semiconductor", "artificial intelligence", "ai"),
-            ("QQQ", "SCHG"),
-            "tech and AI",
-        ),
-        (
-            ("ransomware", "data breach", "cyberattack"),
-            ("CIBR",),
-            "cybersecurity",
-        ),
-        (
-            ("fda", "drugmaker", "pharmaceutical"),
-            ("IBB",),
-            "biotech",
-        ),
-    )
+    rules: list[tuple[bool, tuple[str, ...], str]] = [
+        (_energy_story(title), ("FNARX",), "energy supply"),
+        (_rates_story(title) or _us_inflation_story(title), ("SPY",), "U.S. rates or inflation"),
+        (_ai_or_chip_market(title), ("QQQ",), "tech and AI"),
+        (_cyber_story(title), ("CIBR",), "cybersecurity"),
+        (_biotech_story(title), ("IBB",), "biotech"),
+        (_broad_market_story(title), ("SPY",), "the U.S. stock market"),
+    ]
     scored: dict[str, tuple[int, str]] = {}
-    for phrases, symbols, angle in rules:
-        if not any(_title_has(title, phrase) for phrase in phrases):
+    for matched, symbols, angle in rules:
+        if not matched:
             continue
         for sym in symbols:
             score = scored.get(sym, (0, angle))[0] + 3
@@ -136,6 +212,7 @@ def tickers_for_topic(
     domain: str,
     quotes: list[Quote] | None = None,
 ) -> list[TickerContext]:
+    """Tickers for this headline, at most two. Sports and movies return none."""
     quotes = quotes if quotes is not None else fetch_watchlist_quotes()
     by_symbol = {q.symbol: q for q in quotes}
     pairs = _symbols_for_topic(themes, title, domain)
@@ -157,4 +234,5 @@ def tickers_for_topic(
 
 
 def fetch_quotes_once() -> list[Quote]:
+    """Fetch every watchlist quote a single time for this brief."""
     return fetch_watchlist_quotes()

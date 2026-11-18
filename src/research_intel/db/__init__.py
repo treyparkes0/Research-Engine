@@ -1,3 +1,10 @@
+"""SQLite connection, schema load, and small migrations.
+
+`schema.sql` is the full table list. `init_db` applies it, adds any topic
+columns an older database is missing, and seeds the theme names. Foreign keys
+are turned on for every connection.
+"""
+
 from __future__ import annotations
 
 import sqlite3
@@ -15,10 +22,12 @@ _TOPIC_COLUMNS = {
 
 
 def _schema_path() -> Path:
+    """Path to schema.sql sitting next to this module."""
     return Path(__file__).with_name("schema.sql")
 
 
 def connect(db_path: Path | None = None) -> sqlite3.Connection:
+    """Open the database. Rows come back as dict-like sqlite3.Row objects."""
     path = db_path or database_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(path)
@@ -28,6 +37,7 @@ def connect(db_path: Path | None = None) -> sqlite3.Connection:
 
 
 def init_db(conn: sqlite3.Connection | None = None) -> sqlite3.Connection:
+    """Create tables if needed, migrate, and seed themes. Safe to call on every run."""
     conn = conn or connect()
     schema = _schema_path().read_text(encoding="utf-8")
     conn.executescript(schema)
@@ -38,6 +48,7 @@ def init_db(conn: sqlite3.Connection | None = None) -> sqlite3.Connection:
 
 
 def _migrate(conn: sqlite3.Connection) -> None:
+    """Add topic columns that older databases do not have yet, then fix the domain check."""
     existing = {
         row["name"]
         for row in conn.execute("PRAGMA table_info(topics)").fetchall()
@@ -95,6 +106,7 @@ def _migrate_sources_domain_check(conn: sqlite3.Connection) -> None:
 
 
 def _seed_themes(conn: sqlite3.Connection) -> None:
+    """Insert the theme names from config. Existing rows are left alone."""
     conn.executemany(
         "INSERT OR IGNORE INTO themes (name, status) VALUES (?, 'core')",
         [(name,) for name in SEED_THEMES],

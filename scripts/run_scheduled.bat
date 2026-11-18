@@ -1,5 +1,6 @@
 @echo off
-REM Scheduled runner for Research Intelligence Engine
+REM Morning job for Task Scheduler. Runs the pipeline from the repo root
+REM and appends stdout and stderr to data\logs\scheduler.log.
 cd /d "%~dp0.."
 if not exist "data\logs" mkdir "data\logs"
 set PYTHONPATH=src

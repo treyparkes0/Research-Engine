@@ -1,3 +1,10 @@
+"""Send the brief through Gmail SMTP when an app password is configured.
+
+The message is multipart: HTML for the client, plain Markdown as the fallback.
+Missing credentials raise EmailNotConfiguredError so the daily job can skip
+sending without failing the rest of the run.
+"""
+
 from __future__ import annotations
 
 import smtplib
@@ -12,13 +19,14 @@ from research_intel.generate.template_writer import ResearchBrief
 
 
 class EmailNotConfiguredError(RuntimeError):
-    pass
+    """Raised when the recipient or the app password is missing."""
 
 
 def send_brief_email(
     brief: ResearchBrief,
     settings: EmailSettings | None = None,
 ) -> str:
+    """Send the HTML brief and a plain-text copy. Returns the recipient address."""
     settings = settings or email_settings()
     if not settings.enabled:
         raise EmailNotConfiguredError(

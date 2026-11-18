@@ -1,3 +1,5 @@
+"""CLI: write a Markdown and JSON brief from the current selected topics."""
+
 from __future__ import annotations
 
 import argparse
@@ -7,6 +9,7 @@ from research_intel.generate.brief import build_brief, save_brief
 
 
 def main(argv: list[str] | None = None) -> None:
+    """Parse arguments and write one brief."""
     parser = argparse.ArgumentParser(description="Write a research brief from selected topics")
     parser.add_argument(
         "brief_type",

@@ -1,3 +1,10 @@
+"""Load recent articles, cluster them, rank them, and save the result.
+
+Each run archives the previous topic rows, writes a fresh set, then drops a
+story that was selected more than once (including across sections). Movies use
+a wider window because release dates are not the same as fetch time.
+"""
+
 from __future__ import annotations
 
 import sqlite3
@@ -11,10 +18,11 @@ from research_intel.config import (
 )
 from research_intel.process.cluster import ArticleRef, cluster_articles
 from research_intel.process.rank import RankedTopic, rank_and_select
-from research_intel.process.text import jaccard, tokenize
+from research_intel.process.text import same_story
 
 
 def _cutoff_iso(hours: int = TOPIC_LOOKBACK_HOURS) -> str:
+    """UTC timestamp for 'this many hours ago', used as the SQL cutoff."""
     return (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
 
 
@@ -23,13 +31,14 @@ def load_recent_articles(
     domain: str,
     hours: int = TOPIC_LOOKBACK_HOURS,
 ) -> list[ArticleRef]:
+    """Articles new enough to rank. Movies use fetch time; other sections use publish time."""
     cutoff = _cutoff_iso(hours)
     # Movies: TMDB release dates are calendar dates; use fetched_at so this week's
     # slate stays visible after ingest refreshes.
     if domain == "movies":
         rows = conn.execute(
             """
-            SELECT a.id, a.source_id, a.title, a.published_at, a.fetched_at, a.domain
+            SELECT a.id, a.source_id, a.title, a.summary, a.published_at, a.fetched_at, a.domain
             FROM articles a
             JOIN sources s ON s.id = a.source_id
             WHERE a.domain = ?
@@ -42,7 +51,7 @@ def load_recent_articles(
     else:
         rows = conn.execute(
             """
-            SELECT a.id, a.source_id, a.title, a.published_at, a.fetched_at, a.domain
+            SELECT a.id, a.source_id, a.title, a.summary, a.published_at, a.fetched_at, a.domain
             FROM articles a
             JOIN sources s ON s.id = a.source_id
             WHERE a.domain = ?
@@ -56,6 +65,7 @@ def load_recent_articles(
 
 
 def archive_previous_topics(conn: sqlite3.Connection, domain: str | None = None) -> None:
+    """Mark the last picker run as archived so this run starts clean."""
     if domain:
         conn.execute(
             """
@@ -82,6 +92,7 @@ def save_ranked_topics(
     ranked: list[RankedTopic],
     as_of: str,
 ) -> list[int]:
+    """Write clusters to the topics table and link each article to its topic."""
     topic_ids: list[int] = []
     for item in ranked:
         cluster = item.cluster
@@ -126,6 +137,7 @@ def pick_topics_for_domain(
     hours: int = TOPIC_LOOKBACK_HOURS,
     threshold: float = TOPIC_SIMILARITY_THRESHOLD,
 ) -> list[RankedTopic]:
+    """Cluster and rank one section. Movies need a closer title match so different films do not merge."""
     # Movies need a wider window so this-week releases and reviews stay in play.
     if domain == "movies" and hours == TOPIC_LOOKBACK_HOURS:
         hours = max(hours, 168)
@@ -142,6 +154,7 @@ def run_topic_picker(
     limit: int = TOPICS_PER_DOMAIN,
     hours: int = TOPIC_LOOKBACK_HOURS,
 ) -> dict[str, list[RankedTopic]]:
+    """Rebuild topics for every domain and remove a story that was selected twice."""
     as_of = datetime.now(timezone.utc).isoformat()
     archive_previous_topics(conn)
     results: dict[str, list[RankedTopic]] = {}
@@ -161,8 +174,13 @@ def run_topic_picker(
     return results
 
 
+def _same_selected_story(label: str, other_label: str) -> bool:
+    """True when two selected headlines are the same event and one of them should be dropped."""
+    return same_story(label, other_label)
+
+
 def _drop_cross_domain_duplicates(conn: sqlite3.Connection) -> None:
-    """One Heathrow story should not lead both markets and business."""
+    """One event should not be selected twice, including across sections."""
     rows = conn.execute(
         """
         SELECT id, label, domain, score
@@ -174,8 +192,7 @@ def _drop_cross_domain_duplicates(conn: sqlite3.Connection) -> None:
     kept: list[sqlite3.Row] = []
     dropped_domains: list[str] = []
     for row in rows:
-        tokens = tokenize(row["label"])
-        if any(jaccard(tokens, tokenize(other["label"])) >= 0.42 for other in kept):
+        if any(_same_selected_story(row["label"], other["label"]) for other in kept):
             conn.execute(
                 """
                 UPDATE topics
@@ -199,8 +216,7 @@ def _drop_cross_domain_duplicates(conn: sqlite3.Connection) -> None:
             (domain,),
         ).fetchall()
         for cand in candidates:
-            tokens = tokenize(cand["label"])
-            if any(jaccard(tokens, tokenize(other["label"])) >= 0.42 for other in kept):
+            if any(_same_selected_story(cand["label"], other["label"]) for other in kept):
                 continue
             conn.execute(
                 "UPDATE topics SET status = 'selected' WHERE id = ?",
@@ -214,7 +230,7 @@ def _drop_cross_domain_duplicates(conn: sqlite3.Connection) -> None:
             """
             SELECT id FROM topics
             WHERE status = 'selected' AND domain = ?
-            ORDER BY score DESC, id
+            ORDER BY selected_rank IS NULL, selected_rank, score DESC, id
             """,
             (domain,),
         ).fetchall()

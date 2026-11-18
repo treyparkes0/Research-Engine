@@ -1,3 +1,10 @@
+"""Small local glossary.
+
+A definition is included only when the phrase appears as a whole word in the
+card text. Theme names are not injected, so a story is not given a
+'Geopolitics' definition just because a keyword tag fired.
+"""
+
 from __future__ import annotations
 
 import re
@@ -10,7 +17,8 @@ GLOSSARY: dict[str, str] = {
     "fomc": "Federal Open Market Committee — the Fed group that decides rate policy.",
     "interest rate": "The cost of borrowing money; higher rates usually cool spending and markets.",
     "basis points": "One basis point is 0.01%. So 25 basis points = 0.25%.",
-    "yield": "The return an investor gets from a bond, usually shown as a yearly percent.",
+    "bond yield": "The return an investor gets from a bond, usually shown as a yearly percent.",
+    "treasury yield": "The return on U.S. government debt, watched as a signal of rate expectations.",
     "treasury": "U.S. government debt securities (bills, notes, bonds).",
     "inflation": "A general rise in prices that reduces what one dollar can buy.",
     "cpi": "Consumer Price Index — a common measure of inflation in everyday goods and services.",
@@ -20,12 +28,16 @@ GLOSSARY: dict[str, str] = {
     "bear market": "A market period when prices fall substantially and sentiment is pessimistic.",
     "volatility": "How much and how quickly prices move up and down.",
     "liquidity": "How easily an asset can be bought or sold without moving its price a lot.",
-    "equity": "Ownership in a company, usually in the form of stock.",
+    "private equity": "Investment firms that buy whole companies, often with borrowed money.",
+    "equity market": "The stock market — where ownership shares in companies are traded.",
     "ipo": "Initial Public Offering — when a private company first sells shares to the public.",
     "market cap": "Market capitalization — share price times shares outstanding; a size measure for a company.",
     "etf": "Exchange-Traded Fund — a basket of assets that trades like a stock.",
-    "options": "Contracts that give the right (not obligation) to buy or sell an asset at a set price.",
-    "margin": "Borrowed money used to buy investments; increases both gains and losses.",
+    "stock option": "A contract that gives the right, not the obligation, to buy or sell a stock at a set price.",
+    "call option": "A contract that gives the right to buy an asset at a set price before it expires.",
+    "put option": "A contract that gives the right to sell an asset at a set price before it expires.",
+    "margin call": "A broker's demand for more cash when a loan used to buy investments falls short.",
+    "buying on margin": "Borrowing money from a broker to buy investments, which magnifies both gains and losses.",
     "short selling": "Betting a price will fall by selling borrowed shares and buying them back later.",
     "prediction market": "A market where people trade contracts tied to the outcome of future events.",
     "cftc": "Commodity Futures Trading Commission — U.S. regulator for futures and many derivatives markets.",
@@ -55,12 +67,12 @@ GLOSSARY: dict[str, str] = {
     "quarterback": "The offensive player who usually throws passes and directs plays.",
     "concussion": "A brain injury from a hit or jolt; often requires rest and medical clearance.",
     "practice squad": "A reserve group of players who practice with the team but are not on the main roster.",
-    "extension": "A contract renewal that keeps a player or coach under deal for more years.",
     "free agency": "The period when players can sign with a new team after their contract ends.",
     "power rankings": "An ordered list of teams by perceived strength, often updated weekly.",
     "odi": "One-Day International — a form of cricket limited to one day / 50 overs per side.",
-    "transfer": "When a player moves from one club to another, often for a fee.",
-    "manager": "Head coach responsible for team selection, game plans, and roster decisions.",
+    "transfer window": "The limited period when clubs can buy and sell players.",
+    "transfer fee": "The money one club pays another to sign a player who is under contract.",
+    "contract extension": "A deal that keeps a player or coach under contract for more years.",
 }
 
 

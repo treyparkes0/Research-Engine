@@ -1,1 +1,1 @@
-"""News feed download helpers."""
+"""RSS download, optional TMDB listings, and optional headline-matched enrichment."""

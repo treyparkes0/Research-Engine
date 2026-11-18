@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "research-intelligence-engine"
 version = "0.1.0"
-description = "Personal research briefs for markets, business, world news, and sports"
+description = "Local research briefs from public RSS: cluster events, rank them, and deliver a sourced brief"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

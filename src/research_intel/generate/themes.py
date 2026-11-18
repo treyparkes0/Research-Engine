@@ -1,3 +1,5 @@
+"""Keyword theme tags. These label a card. They do not change the rank or attach a ticker."""
+
 from __future__ import annotations
 
 import re
@@ -19,16 +21,13 @@ THEME_KEYWORDS: dict[str, tuple[str, ...]] = {
     "Geopolitics": (
         "war",
         "ukraine",
-        "russia",
-        "china",
         "sanctions",
         "nato",
-        "israel",
         "gaza",
         "diplomacy",
         "military",
-        "greenland",
-        "iran",
+        "ceasefire",
+        "invasion",
     ),
     "Film & Streaming": (
         "film",
@@ -56,23 +55,23 @@ THEME_KEYWORDS: dict[str, tuple[str, ...]] = {
 
 @dataclass(frozen=True)
 class ThemeHit:
+    """A theme name and how many of its keywords matched."""
     name: str
     score: float
 
 
 def _blob(*parts: str) -> str:
+    """Join text parts into one lowercase string for keyword checks."""
     return " ".join(p for p in parts if p).lower()
 
 
 def _keyword_hit(text: str, keyword: str) -> bool:
-    kw = keyword.lower()
-    # Short tokens like "ai" must match as whole words (avoid "margin", "said").
-    if len(kw) <= 3:
-        return re.search(rf"\b{re.escape(kw)}\b", text) is not None
-    return kw in text
+    """Whole words and phrases only, so 'ai' misses 'said' and 'trade' misses 'trademark'."""
+    return re.search(rf"\b{re.escape(keyword.lower())}\b", text) is not None
 
 
 def match_themes(*parts: str, limit: int = 3) -> list[ThemeHit]:
+    """Theme tags whose keywords appear as whole words in the text."""
     text = _blob(*parts)
     hits: list[ThemeHit] = []
     for theme in SEED_THEMES:

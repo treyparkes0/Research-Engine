@@ -1,3 +1,8 @@
+-- Tables for the local brief. Articles come from RSS (and optional TMDB).
+-- Topics are the clustered events. Briefs are the files that were sent.
+-- entities, article_entities, topic_themes, related, and user_feedback are
+-- unused by the current pipeline and are left in place.
+
 PRAGMA foreign_keys = ON;
 
 CREATE TABLE IF NOT EXISTS sources (

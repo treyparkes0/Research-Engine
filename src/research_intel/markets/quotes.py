@@ -1,3 +1,9 @@
+"""Recent prices from Yahoo's public chart endpoint.
+
+A failed symbol returns an empty quote instead of stopping the brief. These
+numbers are context for the email, not a claim that a story moved the price.
+"""
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -54,4 +60,5 @@ def fetch_quote(symbol: str, name: str, timeout: float = 20.0) -> Quote:
 
 
 def fetch_watchlist_quotes() -> list[Quote]:
+    """Recent price for each watchlist symbol. One failure does not stop the rest."""
     return [fetch_quote(symbol, name) for symbol, name in WATCHLIST]

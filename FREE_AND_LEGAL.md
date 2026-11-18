@@ -37,11 +37,11 @@ No paid news API is required.
 The template writer should:
 
 1. Read only what we already saved from the feed
-2. Write original wording
+2. Use that blurb, cleaned up, and not add facts the blurb does not state
 3. Always include source links
-4. Say when something is uncertain
+4. Stay short when the feed is short
 
-If a feed only gives a headline and one sentence, the brief stays short. That is fine and legal.
+If a feed only gives a headline and one sentence, the brief stays short. That is fine and legal. The writer does not call a language model.
 
 ## Sources in this project
 
@@ -60,4 +60,4 @@ You can run the whole pipeline at **$0**:
 3. Write briefs with your own template code  
 4. Save HTML/Markdown to `data/briefs/`  
 
-Email is optional. A local model such as Ollama can be added later.
+Email is optional. A local model is not part of this project. The card writer is the only place one would plug in, and it is not required for the brief to run.

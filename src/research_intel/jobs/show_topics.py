@@ -1,3 +1,5 @@
+"""CLI: print the selected topics without writing a brief."""
+
 from __future__ import annotations
 
 from research_intel.config import DOMAINS
@@ -5,6 +7,7 @@ from research_intel.db import init_db
 
 
 def main() -> None:
+    """Print the topics the last ranking run selected."""
     conn = init_db()
     print("Current selected topics (from last picker run):\n")
     for domain in DOMAINS:

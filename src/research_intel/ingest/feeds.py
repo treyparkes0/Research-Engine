@@ -1,3 +1,10 @@
+"""Download public RSS and store title, blurb, link, and time.
+
+Each feed is isolated: one failure does not stop the others. Sports and film
+filters run before a row is inserted. After the RSS loop, optional TMDB
+ingest runs. We never scrape a full article page.
+"""
+
 from __future__ import annotations
 
 import hashlib
@@ -19,6 +26,7 @@ USER_AGENT = "ResearchIntelligenceEngine/0.1 (+personal research bot)"
 
 
 def ensure_sources(conn: sqlite3.Connection, feeds: tuple[Feed, ...] = DEFAULT_FEEDS) -> dict[str, int]:
+    """Insert or update the configured feeds and return feed URL to source id. Feeds removed from config are marked inactive."""
     """Upsert starter feeds and return feed_url -> source_id."""
     mapping: dict[str, int] = {}
     active_urls = {feed.feed_url for feed in feeds}
@@ -67,6 +75,7 @@ def ensure_sources(conn: sqlite3.Connection, feeds: tuple[Feed, ...] = DEFAULT_F
 
 
 def _parse_published(entry: dict[str, Any]) -> str | None:
+    """Turn an RSS date into a UTC ISO timestamp. Unparseable dates become None."""
     for key in ("published", "updated"):
         raw = entry.get(key)
         if not raw:
@@ -82,15 +91,56 @@ def _parse_published(entry: dict[str, Any]) -> str | None:
 
 
 def _content_hash(title: str, summary: str, url: str) -> str:
+    """Stable hash of the stored fields, so a later run can see that the item changed."""
     blob = f"{title.strip()}|{summary.strip()}|{url.strip()}".encode("utf-8")
     return hashlib.sha256(blob).hexdigest()
 
 
 def fetch_feed(feed_url: str, timeout: float = 20.0) -> feedparser.FeedParserDict:
+    """Download one feed and parse it. Raises if the HTTP request fails."""
     with httpx.Client(timeout=timeout, follow_redirects=True, headers={"User-Agent": USER_AGENT}) as client:
         response = client.get(feed_url)
         response.raise_for_status()
         return feedparser.parse(response.content)
+
+
+def should_store_article(feed: Feed, title: str, summary: str, url: str = "") -> bool:
+    """Domain rules applied before a feed item is written."""
+    if feed.domain == "sports":
+        if is_soccer(title, summary, url) or is_betting_promo(title, summary, url):
+            return False
+        # MLB wire: Mets only (a light baseball slice).
+        if "mlb" in feed.name.lower() or "/mlb/" in feed.feed_url.lower():
+            return is_mets_baseball(title, summary)
+    if feed.domain == "movies":
+        if is_foreign_film_blurb(title, summary):
+            return False
+        # BBC Culture mixes TV and arts. Keep film items.
+        if "bbc" in feed.name.lower() and not is_film_related(title, summary):
+            return False
+    return True
+
+
+def prepare_article(feed: Feed, entry: dict) -> dict | None:
+    """Return a row dict, or None when the entry is empty or out of scope."""
+    url = (entry.get("link") or "").strip()
+    title = (entry.get("title") or "").strip()
+    if not url or not title:
+        return None
+    # Only keep what the publisher put in the feed (not a scraped full article).
+    summary = (entry.get("summary") or entry.get("description") or "").strip()
+    if len(summary) > 2000:
+        summary = summary[:2000].rstrip() + "..."
+    if not should_store_article(feed, title, summary, url):
+        return None
+    return {
+        "url": url,
+        "title": title,
+        "summary": summary,
+        "published_at": _parse_published(entry),
+        "content_hash": _content_hash(title, summary, url),
+        "domain": feed.domain,
+    }
 
 
 def ingest_feed(
@@ -98,39 +148,20 @@ def ingest_feed(
     feed: Feed,
     source_id: int,
 ) -> tuple[int, int]:
-    """Returns (new_count, seen_count)."""
+    """Store one feed. Returns (new rows, items that passed the filters)."""
     parsed = fetch_feed(feed.feed_url)
     new_count = 0
     seen_count = 0
 
     for entry in parsed.entries:
-        url = (entry.get("link") or "").strip()
-        title = (entry.get("title") or "").strip()
-        if not url or not title:
+        prepared = prepare_article(feed, entry)
+        if prepared is None:
             continue
-
-        # Only keep what the publisher put in the feed (not a scraped full article).
-        summary = (entry.get("summary") or entry.get("description") or "").strip()
-        if len(summary) > 2000:
-            summary = summary[:2000].rstrip() + "..."
-
-        if feed.domain == "sports":
-            if is_soccer(title, summary) or is_betting_promo(title, summary):
-                continue
-            # MLB wire: Mets only (a light baseball slice).
-            if "mlb" in feed.name.lower() or "/mlb/" in feed.feed_url.lower():
-                if not is_mets_baseball(title, summary):
-                    continue
-
-        if feed.domain == "movies":
-            if is_foreign_film_blurb(title, summary):
-                continue
-            # BBC Culture mixes TV/arts — keep film/movie industry items.
-            if "bbc" in feed.name.lower() and not is_film_related(title, summary):
-                continue
-
-        published_at = _parse_published(entry)
-        content_hash = _content_hash(title, summary, url)
+        url = prepared["url"]
+        title = prepared["title"]
+        summary = prepared["summary"]
+        published_at = prepared["published_at"]
+        content_hash = prepared["content_hash"]
         seen_count += 1
 
         cursor = conn.execute(
@@ -149,6 +180,7 @@ def ingest_feed(
 
 
 def run_ingest(conn: sqlite3.Connection, feeds: tuple[Feed, ...] = DEFAULT_FEEDS) -> dict[str, int]:
+    """Ingest every configured feed, record the run, then pull TMDB if a key is set."""
     source_ids = ensure_sources(conn, feeds)
     started = datetime.now(timezone.utc).isoformat()
     run_id = conn.execute(

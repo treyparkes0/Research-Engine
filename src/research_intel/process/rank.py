@@ -1,3 +1,10 @@
+"""Score events and pick the ones that make the brief.
+
+Independent publishers are the main signal. Recency fades over 36 hours. A
+real feed blurb adds a small bonus. Extra copies from the same publisher do
+not raise the score. Sports and movies add a subject bonus or are dropped.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -8,16 +15,51 @@ from research_intel.process.cluster import TopicCluster
 from research_intel.process.movies_focus import movies_bucket, movies_focus_bonus
 from research_intel.process.sports_focus import primary_bucket, sports_focus_bonus
 
+# Independent publishers dominate. Extra copies from the same feed add nothing.
+PUBLISHER_WEIGHT = 4.0
+RECENCY_MAX = 5.0
+RECENCY_WINDOW_HOURS = 36.0
+SUBSTANCE_ONE = 1.0
+SUBSTANCE_MULTI = 1.5
+MIN_SUMMARY_CHARS = 80
+
 
 @dataclass
 class RankedTopic:
+    """A scored cluster. `selected_rank` is 1-based when the story made the brief, else None."""
     cluster: TopicCluster
     score: float
     selected_rank: int | None
 
 
 def _hours_ago(when: datetime, now: datetime) -> float:
+    """Hours between a timestamp and now. Future times count as zero."""
     return max((now - when).total_seconds() / 3600.0, 0.0)
+
+
+def _substantive(summary: str, title: str) -> bool:
+    """True when the blurb is long enough to add something beyond the headline."""
+    text = " ".join((summary or "").split())
+    if len(text) < MIN_SUMMARY_CHARS:
+        return False
+    return text.lower().strip(" .") != (title or "").lower().strip(" .")
+
+
+def substance_bonus(cluster: TopicCluster) -> float:
+    """Reward blurbs that add information. Count each publisher once."""
+    publishers_with_blurb = 0
+    seen: set[int] = set()
+    for article in cluster.articles:
+        if article.source_id in seen:
+            continue
+        if _substantive(article.summary, article.title):
+            seen.add(article.source_id)
+            publishers_with_blurb += 1
+    if publishers_with_blurb >= 2:
+        return SUBSTANCE_MULTI
+    if publishers_with_blurb == 1:
+        return SUBSTANCE_ONE
+    return 0.0
 
 
 def score_cluster(
@@ -28,18 +70,23 @@ def score_cluster(
 ) -> float | None:
     """
     Higher is better.
-    Rewards multiple outlets covering the same story, more articles,
-    and fresher coverage. Sports domain applies league preferences.
-    Returns None when the cluster should be dropped (e.g. soccer).
+
+    Independent publishers are the main signal. A second copy of the same
+    headline from one feed does not raise the score. Recency fades to zero
+    at 36 hours. A real feed blurb adds a small substance bonus. Sports and
+    movies add a subject-area bonus, or return None when the cluster is out
+    of scope (soccer, betting promo, non-film item).
     """
+    if not cluster.articles:
+        return None
     now = now or datetime.now(timezone.utc)
     sources = cluster.source_count()
-    articles = cluster.article_count()
     age_hours = _hours_ago(max(a.when() for a in cluster.articles), now)
-
-    # Newer stories get up to +5; older than ~36h fade toward 0.
-    recency = max(0.0, 5.0 - (age_hours / 7.2))
-    score = (sources * 3.0) + (articles * 1.0) + recency
+    if age_hours >= RECENCY_WINDOW_HOURS:
+        recency = 0.0
+    else:
+        recency = RECENCY_MAX * (1.0 - age_hours / RECENCY_WINDOW_HOURS)
+    score = (sources * PUBLISHER_WEIGHT) + recency + substance_bonus(cluster)
 
     if domain == "sports":
         titles = [a.title for a in cluster.articles]
@@ -148,6 +195,7 @@ def rank_and_select(
     *,
     domain: str | None = None,
 ) -> list[RankedTopic]:
+    """Score every cluster and mark the top ones. Sports and movies use a diversity pass first."""
     now = now or datetime.now(timezone.utc)
     scored_pairs: list[tuple[float, TopicCluster]] = []
     for cluster in clusters:

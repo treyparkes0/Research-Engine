@@ -1,10 +1,16 @@
+"""Build the in-memory brief: one card per selected story, plus the closing.
+
+A card's paragraph is the feed blurb. Theme tags are keyword hits. Glossary
+lines are included only when the term actually appears in the title or the
+paragraph. Movies do not get a 'why it matters' line, because a plot sentence
+is not a consequence.
+"""
+
 from __future__ import annotations
 
 import json
-import re
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
-from html import unescape
 
 from research_intel.generate.analyze import collect_facts, what_happened, what_is_open, why_it_matters
 from research_intel.generate.glossary import definitions_for_text
@@ -14,29 +20,9 @@ from research_intel.markets.impact import TickerContext
 from research_intel.markets.watchlist import Quote
 
 
-def _clean_html(text: str | None) -> str:
-    if not text:
-        return ""
-    text = unescape(text)
-    text = re.sub(r"<[^>]+>", " ", text)
-    text = re.sub(r"\s+", " ", text).strip()
-    return text
-
-
-def _first_sentences(text: str, max_chars: int = 420) -> str:
-    text = _clean_html(text)
-    if not text:
-        return ""
-    if len(text) <= max_chars:
-        return text
-    cut = text[:max_chars]
-    if " " in cut:
-        cut = cut.rsplit(" ", 1)[0]
-    return cut.rstrip(".,;:") + "..."
-
-
 @dataclass
 class SourceLink:
+    """One publisher link attached to a card."""
     title: str
     url: str
     source_name: str
@@ -46,6 +32,7 @@ class SourceLink:
 
 @dataclass
 class TopicCard:
+    """One story in the brief: headline, what happened, optional why, terms, and links."""
     topic_id: int
     domain: str
     rank: int
@@ -61,11 +48,13 @@ class TopicCard:
     themes: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
+        """Card fields as a plain dict, for JSON."""
         return asdict(self)
 
 
 @dataclass
 class BriefClosing:
+    """The article of the day and the short list of stories that did not make the main slots."""
     # Shown under the "Article of the Day" section.
     article_title: str
     article_domain: str
@@ -80,6 +69,7 @@ class BriefClosing:
 
 @dataclass
 class ResearchBrief:
+    """The full morning or evening brief, ready to render or save."""
     brief_type: str
     created_at: str
     cards_by_domain: dict[str, list[TopicCard]]
@@ -88,6 +78,7 @@ class ResearchBrief:
     writer: str = "analysis-v1"
 
     def to_dict(self) -> dict:
+        """The whole brief as a plain dict, for the JSON file."""
         return {
             "brief_type": self.brief_type,
             "created_at": self.created_at,
@@ -111,33 +102,34 @@ def build_topic_card(
     related_tickers: list[TickerContext] | None = None,
     enrichment: Enrichment | None = None,
 ) -> TopicCard:
+    """Assemble one card from its sources. The paragraph is not a blend of every article."""
     theme_hits = match_themes(title, *[s.summary for s in sources], *[s.title for s in sources])
     theme_names = [t.name for t in theme_hits]
 
+    if domain == "movies":
+        theme_hits = [hit for hit in theme_hits if hit.name in {"Film & Streaming", "Box Office"}]
+        theme_names = [hit.name for hit in theme_hits]
+    elif domain == "sports":
+        theme_hits = []
+        theme_names = []
+
     facts = collect_facts(title, sources, enrichment)
-    executive = what_happened(title, facts)
-    why = why_it_matters(facts, title=title)
+    executive = what_happened(title, facts, limit=3 if domain == "movies" else 2)
+    why = "" if domain == "movies" else why_it_matters(facts, title=title)
     named_sources = {name for name, _ in facts}
     snapshot = what_is_open(facts, source_count=len({s.source_name for s in sources}) or len(named_sources))
 
-    takeaways: list[str] = []
-    for src in sources[:5]:
-        blurb = _first_sentences(src.summary, max_chars=220)
-        if not blurb:
-            continue
-        if blurb.lower().strip(" .") == title.lower().strip(" ."):
-            continue
-        takeaways.append(f"{src.source_name}: {blurb}")
+    takeaways = [f"{name}: {sentence}" for name, sentence in facts[:3]]
     if not takeaways:
         takeaways = ["No feed lead added a fact beyond the headline."]
 
     further_unique = [] if domain in {"sports", "movies"} else theme_names[:6]
 
+    # Terms have to appear in the headline or the feed text. Theme labels are not injected.
     definitions = definitions_for_text(
         title,
-        *[s.title for s in sources],
-        *[s.summary for s in sources],
-        *theme_names,
+        executive,
+        why,
     )
 
     return TopicCard(
@@ -162,6 +154,7 @@ def build_closing(
     monitor_labels: list[str],
     brief_type: str,
 ) -> BriefClosing:
+    """Pick the article of the day and the short also-watching list."""
     all_cards = [card for cards in cards_by_domain.values() for card in cards]
     theme_scores: dict[str, float] = {}
     for card in all_cards:
@@ -204,19 +197,13 @@ def build_closing(
         "sports": "sports",
         "movies": "film",
     }.get(pick.domain, pick.domain)
-    if pick.definitions:
-        why_learn = (
-            f"Widest coverage in {section} today. Read one source, learn the terms below, "
-            f"and see how it sits with {emerging}."
-        )
-    else:
-        why_learn = (
-            f"Widest coverage in {section} today. Read one source and see how it sits with {emerging}."
-        )
-    monitor = monitor_labels[:5] or [
-        f"Follow-ups on {pick.title[:80]}",
-        f"Fresh developments tied to {emerging}",
-    ]
+    outlet_count = len({src.source_name for src in pick.sources}) or 1
+    outlet_word = "outlet" if outlet_count == 1 else "outlets"
+    why_learn = (
+        f"Widest coverage in this brief: {outlet_count} {outlet_word} in {section}. "
+        "The card uses the feed blurb for that headline and links back to the publisher."
+    )
+    monitor = monitor_labels[:5] or [f"No other near-miss stories in this run."]
 
     return BriefClosing(
         article_title=pick.title,
@@ -231,10 +218,12 @@ def build_closing(
 
 
 def now_iso() -> str:
+    """Current UTC time as an ISO timestamp."""
     return datetime.now(timezone.utc).isoformat()
 
 
 def dumps_card_lists(card: TopicCard) -> dict[str, str]:
+    """JSON strings for the list columns on the topic_cards table."""
     return {
         "key_takeaways_json": json.dumps(card.key_takeaways, ensure_ascii=True),
         "further_research_json": json.dumps(card.further_research, ensure_ascii=True),

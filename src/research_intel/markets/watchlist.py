@@ -1,3 +1,9 @@
+"""The personal watchlist and the shape of one quote.
+
+Tickers here are the only symbols the brief will mention. Adding a symbol to
+this list does not make it appear on a story; the headline still has to match.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -16,28 +22,9 @@ WATCHLIST: tuple[tuple[str, str], ...] = (
 )
 
 
-# Theme/domain cues -> which tickers are most relevant to discuss.
-IMPACT_MAP: dict[str, tuple[str, ...]] = {
-    "Artificial Intelligence": ("QQQ", "SCHG", "SPY", "VOO"),
-    "Cybersecurity": ("CIBR", "QQQ", "SCHG"),
-    "Interest Rates": ("SCHG", "QQQ", "SPY", "VOO", "VTI"),
-    "Inflation": ("FNARX", "SPY", "VTI"),
-    "Energy Markets": ("FNARX", "SPY", "VTI"),
-    "Earnings": ("SPY", "VOO", "QQQ", "SCHG"),
-    "Trade Policy": ("SPY", "VOO", "VTI", "QQQ"),
-    "Geopolitics": ("SPY", "VOO", "VTI", "FNARX"),
-    "Consumer Spending": ("SPY", "VOO", "VTI"),
-    "biotech": ("IBB", "SPY"),
-    "health": ("IBB", "SPY"),
-    "oil": ("FNARX", "SPY"),
-    "cyber": ("CIBR", "QQQ"),
-    "tech": ("QQQ", "SCHG", "SPY"),
-    "growth": ("SCHG", "QQQ"),
-}
-
-
 @dataclass(frozen=True)
 class Quote:
+    """A recent price. price and change_pct are None when the fetch failed."""
     symbol: str
     name: str
     price: float | None

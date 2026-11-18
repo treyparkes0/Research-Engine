@@ -1,4 +1,10 @@
-"""Sports preference: boost preferred US leagues, drop soccer."""
+"""Sports rules for the personal brief.
+
+Preferred leagues (NFL, college football, NBA, college basketball, tennis,
+NHL, UFC, Mets) get a ranking bonus. Soccer is dropped. Betting promotions,
+odds columns, and /betting/ URLs are dropped. Injury reports, polls, and
+signings stay.
+"""
 
 from __future__ import annotations
 
@@ -139,35 +145,44 @@ _SOCCER_RE = [re.compile(p, re.I) for p in SOCCER_PATTERNS]
 
 
 def _blob(*parts: str) -> str:
+    """Join title, blurb, and URL into one lowercase string."""
     return " ".join(p for p in parts if p).lower()
 
 
 _PROMO_RE = re.compile(
-    r"\b("
-    r"sportsbooks?|draftkings|fanduel|betmgm|bet365|caesars|fanatics|"
-    r"betting apps?|betting promos?|how to bet|promo codes?|bonuses|"
-    r"sportsbook"
-    r")\b",
+    r"("
+    r"\b(?:sportsbooks?|draftkings|fanduel|betmgm|bet365|caesars sportsbook|fanatics sportsbook)\b"
+    r"|\b(?:betting apps?|betting promos?|betting odds|betting preview|betting guide|where to bet|how to bet)\b"
+    r"|\b(?:promo codes?|bonus bets?|sign-?up bonus|signup bonus|deposit bonus|betting bonus)\b"
+    r"|\b(?:best bets?|player props?|point spread|moneyline|parlays?|against the spread)\b"
+    r"|\b(?:prediction markets?|first touchdown scorer|anytime touchdown scorer)\b"
+    r"|\bodds\s*:"
+    r"|\bpicks,\s*predictions\b"
+    r"|/betting/"
+    r")",
     re.I,
 )
 
 
 def is_betting_promo(*parts: str) -> bool:
-    """Affiliate betting-app copy, not a game story."""
+    """Affiliate odds, props, and bonus copy. Game reporting is kept."""
     return _PROMO_RE.search(_blob(*parts)) is not None
 
 
 def is_soccer(*parts: str) -> bool:
+    """True for soccer and football-as-soccer items, which this brief skips."""
     text = _blob(*parts)
     return any(rx.search(text) for rx in _SOCCER_RE)
 
 
 def is_mets_baseball(*parts: str) -> bool:
+    """True for a Mets item. The baseball feed is Mets-only on purpose."""
     text = _blob(*parts)
     return any(re.search(rf"\b{re.escape(k)}\b", text) for k in PREFERRED_BUCKETS[-1][1])
 
 
 def is_other_baseball(*parts: str) -> bool:
+    """True for baseball that is not about the Mets, which this brief skips."""
     text = _blob(*parts)
     if is_mets_baseball(text):
         return False

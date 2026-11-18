@@ -1,4 +1,9 @@
-"""Movies preference: English-language / US-UK focus; this-week releases, reviews, industry."""
+"""Film rules: English-language focus, this-week releases, and real film coverage.
+
+Television and celebrity items that never say film, movie, or cinema are
+dropped. Foreign-language film cues are dropped. The week window is Monday
+through Sunday on the machine's local calendar.
+"""
 
 from __future__ import annotations
 
@@ -8,12 +13,14 @@ from datetime import date, datetime, timedelta, timezone
 # Production countries treated as English-speaking film industries.
 EN_SPEAKING_COUNTRIES = frozenset({"US", "GB", "CA", "AU", "IE", "NZ"})
 
-# Soft drop: clearly non-English / foreign-language film cues in RSS titles.
+# Soft drop: clearly non-English film cues. A country name alone is not enough.
 FOREIGN_FILM_PATTERNS: tuple[str, ...] = (
     r"\bfrench film\b",
-    r"\bkorean\b",
-    r"\bjapanese\b",
-    r"\bchinese\b",
+    r"\bkorean film\b",
+    r"\bjapanese film\b",
+    r"\bchinese film\b",
+    r"\bin korean\b",
+    r"\bin japanese\b",
     r"\bbollywood\b",
     r"\banime\b",
     r"\bspanish[- ]language\b",
@@ -54,6 +61,7 @@ REVIEW_KEYWORDS: tuple[str, ...] = (
     "first look",
 )
 
+# Strong cues only. "Actor", "streaming", or "Netflix" alone is often TV.
 FILM_NEWS_KEYWORDS: tuple[str, ...] = (
     "film",
     "movie",
@@ -61,30 +69,29 @@ FILM_NEWS_KEYWORDS: tuple[str, ...] = (
     "hollywood",
     "oscar",
     "box office",
-    "streaming",
     "trailer",
-    "director",
-    "actor",
-    "actress",
     "screenplay",
+    "theatrical",
 )
 
 _FOREIGN_RE = [re.compile(p, re.I) for p in FOREIGN_FILM_PATTERNS]
 
 
 def _blob(*parts: str) -> str:
+    """Join title, blurb, and URL into one lowercase string."""
     return " ".join(p for p in parts if p).lower()
 
 
 def week_window(today: date | None = None) -> tuple[date, date]:
-    """Monday–Sunday of the current week (local calendar date)."""
-    today = today or datetime.now(timezone.utc).date()
+    """Monday–Sunday of the current week on the machine's local calendar."""
+    today = today or datetime.now().astimezone().date()
     start = today - timedelta(days=today.weekday())
     end = start + timedelta(days=6)
     return start, end
 
 
 def parse_release_date(raw: str | None) -> date | None:
+    """Read a YYYY-MM-DD release date out of a movie blurb."""
     if not raw:
         return None
     try:
@@ -115,11 +122,13 @@ def is_english_speaking_movie(
 
 
 def is_foreign_film_blurb(*parts: str) -> bool:
+    """True when the item is marked as a foreign-language film."""
     text = _blob(*parts)
     return any(rx.search(text) for rx in _FOREIGN_RE)
 
 
 def is_film_related(*parts: str) -> bool:
+    """True when the item is actually about a film, not a TV show or a celebrity note."""
     text = _blob(*parts)
     return any(re.search(rf"\b{re.escape(k)}\b", text) for k in FILM_NEWS_KEYWORDS)
 
@@ -132,16 +141,18 @@ def movies_bucket(*parts: str) -> str | None:
     text = _blob(*parts)
     if is_foreign_film_blurb(text):
         return None
+    film = is_film_related(text)
     if "[this week]" in text or "opens this week" in text or "this week release" in text:
         return "this_week"
-    if "[now playing]" in text or any(k in text for k in REVIEW_KEYWORDS):
+    if "[now playing]" in text:
         return "review"
-    if any(k in text for k in INDUSTRY_KEYWORDS):
-        return "industry"
     if "[upcoming]" in text:
         return "this_week"
-    # Generic film RSS without a clear bucket — allow as industry-lite.
-    if is_film_related(text):
+    if not film:
+        return None
+    if any(k in text for k in REVIEW_KEYWORDS):
+        return "review"
+    if any(k in text for k in INDUSTRY_KEYWORDS) or film:
         return "industry"
     return None
 

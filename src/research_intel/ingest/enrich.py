@@ -1,3 +1,10 @@
+"""Optional longer blurbs from Guardian, NYT, and NewsAPI.
+
+Used only when a key is set. A hit is kept only when its headline is the same
+story as the card, not merely the same person. If no key is set, this module
+returns nothing and the brief uses the RSS blurb alone.
+"""
+
 from __future__ import annotations
 
 import os
@@ -22,20 +29,24 @@ _GENERIC = frozenset(
 
 @dataclass
 class Enrichment:
+    """A longer blurb from an optional API, kept only when the headline matches."""
     provider: str
     extra_text: str
     url: str = ""
 
 
 def _guardian_key() -> str:
+    """Guardian key, or empty when that API is off."""
     return (os.getenv("GUARDIAN_API_KEY") or "").strip()
 
 
 def _newsapi_key() -> str:
+    """NewsAPI key, or empty when that API is off."""
     return (os.getenv("NEWS_API_KEY") or "").strip()
 
 
 def _nyt_key() -> str:
+    """New York Times key, or empty when that API is off."""
     return (os.getenv("NYT_API_KEY") or os.getenv("NYTIMES_API_KEY") or "").strip()
 
 
@@ -60,6 +71,7 @@ def headline_matches(topic: str, headline: str) -> bool:
 
 
 def _clean(text: str) -> str:
+    """Strip HTML and collapse whitespace in an API blurb."""
     text = unescape(text or "")
     text = re.sub(r"<[^>]+>", " ", text)
     text = re.sub(r"\s+", " ", text).strip()
@@ -119,6 +131,7 @@ def enrich_topic(title: str, timeout: float = 20.0) -> Enrichment | None:
 
 
 def _enrich_guardian(title: str, timeout: float) -> Enrichment | None:
+    """One Guardian match for this headline, or None."""
     url = "https://content.guardianapis.com/search"
     params = {
         "api-key": _guardian_key(),
@@ -155,6 +168,7 @@ def _enrich_guardian(title: str, timeout: float) -> Enrichment | None:
 def _enrich_nyt(title: str, timeout: float) -> Enrichment | None:
     # NYT Article Search — free non-commercial developer key.
     # Usually returns headline + abstract + URL, not full body text.
+    """One New York Times match for this headline, or None."""
     url = "https://api.nytimes.com/svc/search/v2/articlesearch.json"
     params = {
         "q": title[:100],
@@ -187,6 +201,7 @@ def _enrich_nyt(title: str, timeout: float) -> Enrichment | None:
 
 
 def _enrich_newsapi(title: str, timeout: float) -> Enrichment | None:
+    """One NewsAPI match for this headline, or None."""
     url = "https://newsapi.org/v2/everything"
     params = {
         "q": title[:100],
@@ -221,6 +236,7 @@ def _enrich_newsapi(title: str, timeout: float) -> Enrichment | None:
 
 
 def api_status() -> str:
+    """Which optional API keys are present. Does not call the APIs."""
     parts = []
     if _guardian_key():
         parts.append("guardian")

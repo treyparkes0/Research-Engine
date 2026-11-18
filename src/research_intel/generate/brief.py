@@ -1,3 +1,10 @@
+"""Load selected topics from SQLite and save the finished brief.
+
+This is the step that ties ranking to writing. It does not re-rank. Optional
+enrichment and ticker context are applied here, then the Markdown and JSON
+files are written next to a row in the briefs table.
+"""
+
 from __future__ import annotations
 
 import json
@@ -19,6 +26,7 @@ from research_intel.markets.impact import fetch_quotes_once, tickers_for_topic
 
 
 def _load_selected_topics(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    """Selected topics in brief order: markets, business, world, sports, movies."""
     return conn.execute(
         """
         SELECT id, label, domain, selected_rank, score, article_count, source_count
@@ -39,6 +47,7 @@ def _load_selected_topics(conn: sqlite3.Connection) -> list[sqlite3.Row]:
 
 
 def _load_sources_for_topic(conn: sqlite3.Connection, topic_id: int) -> list[SourceLink]:
+    """Publisher links for one topic, newest first."""
     rows = conn.execute(
         """
         SELECT a.title, a.url, a.summary, a.published_at, a.fetched_at, s.name AS source_name
@@ -63,6 +72,7 @@ def _load_sources_for_topic(conn: sqlite3.Connection, topic_id: int) -> list[Sou
 
 
 def _load_monitor_candidates(conn: sqlite3.Connection, limit: int = 8) -> list[tuple[int, str, float, str]]:
+    """High-scoring stories that did not make the top five. Shown as 'also watching'."""
     rows = conn.execute(
         """
         SELECT id, label, score, domain
@@ -77,6 +87,7 @@ def _load_monitor_candidates(conn: sqlite3.Connection, limit: int = 8) -> list[t
 
 
 def build_brief(conn: sqlite3.Connection, brief_type: str = "evening") -> ResearchBrief:
+    """Build the brief object. Does not write files. Quotes are fetched once for the whole run."""
     if brief_type not in {"morning", "evening"}:
         raise ValueError("brief_type must be 'morning' or 'evening'")
 
@@ -138,6 +149,7 @@ def save_brief(
     conn: sqlite3.Connection,
     brief: ResearchBrief,
 ) -> tuple[int, Path]:
+    """Write the Markdown and JSON files and store a briefs row."""
     payload = json.dumps(brief.to_dict(), ensure_ascii=True, indent=2)
     cursor = conn.execute(
         """

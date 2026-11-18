@@ -1,3 +1,10 @@
+"""Morning and evening pipeline: ingest, rank, write, email, then prune.
+
+The scheduled morning run skips itself at or after 9:00 local time so a late
+wake-up does not send a stale brief. Pass --allow-late to run anyway. Evening
+is started by hand.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -18,7 +25,7 @@ from research_intel.process.pick_topics import run_topic_picker
 
 
 def past_morning_cutoff(now: datetime | None = None) -> bool:
-    """True when local time is at or after the morning send cutoff."""
+    """True at or after 9:00 on the machine's local clock."""
     local = datetime.now().astimezone() if now is None else now
     if local.tzinfo is not None:
         local = local.astimezone()
@@ -32,6 +39,7 @@ def run_daily(
     skip_cleanup: bool = False,
     allow_late: bool = False,
 ) -> int:
+    """Ingest, rank, write, optionally email, then prune. Returns 0, or 2 when the morning window has closed."""
     if brief_type not in {"morning", "evening"}:
         raise ValueError("brief_type must be morning or evening")
 
@@ -111,6 +119,7 @@ def run_daily(
 
 
 def main(argv: list[str] | None = None) -> None:
+    """Parse arguments and start a morning or evening run."""
     parser = argparse.ArgumentParser(description="Run the full daily research brief pipeline")
     parser.add_argument(
         "brief_type",

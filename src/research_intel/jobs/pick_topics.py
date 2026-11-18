@@ -1,3 +1,5 @@
+"""CLI: cluster and rank the articles already in SQLite."""
+
 from __future__ import annotations
 
 from research_intel.config import TOPIC_LOOKBACK_HOURS, TOPICS_PER_DOMAIN
@@ -6,6 +8,7 @@ from research_intel.process.pick_topics import run_topic_picker
 
 
 def main() -> None:
+    """Parse arguments and rebuild the ranked topics."""
     conn = init_db()
     print(
         f"Picking top {TOPICS_PER_DOMAIN} topics per domain "

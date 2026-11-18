@@ -12,7 +12,9 @@ from research_intel.generate.analyze import (
     what_happened,
     why_it_matters,
 )
-from research_intel.generate.render import first_sentence, polish_title
+from research_intel.generate.glossary import definitions_for_text
+from research_intel.generate.render import first_sentence, overview_line, polish_title
+from research_intel.generate.template_writer import TopicCard
 from research_intel.ingest.enrich import headline_matches
 from research_intel.markets.impact import _symbols_for_topic
 from research_intel.process.sports_focus import is_betting_promo, sports_focus_bonus
@@ -131,6 +133,81 @@ class BriefQualityTests(unittest.TestCase):
             polish_title("The Guardian view on Manchester City: a strange kind of glory | Editorial"),
             "The Guardian view on Manchester City: a strange kind of glory",
         )
+
+    def test_second_article_cannot_change_the_headline_story(self) -> None:
+        title = "Thames Water should be placed in temporary public control"
+        sources = [
+            _Source(
+                title,
+                "Bill payers should not fund another Thames Water rescue. "
+                "A parliamentary committee said the company should be placed in temporary state control.",
+            ),
+            _Source(
+                "Burnham wardrobe era begins in Westminster",
+                "The new prime minister is ushering in a Westminster dressing era with a relaxed new look.",
+            ),
+        ]
+        body = what_happened(title, collect_facts(title, sources))
+        self.assertIn("Thames Water", body)
+        self.assertNotIn("wardrobe", body.lower())
+        self.assertNotIn("dressing", body.lower())
+
+    def test_empty_feed_summary_stays_short(self) -> None:
+        title = "Mets re-sign pitcher Stock to a one-year contract"
+        body = what_happened(title, collect_facts(title, [_Source(title, "")]))
+        self.assertIn("feeds only repeat the headline", body)
+        self.assertNotIn("expected to", body.lower())
+
+    def test_repeated_paraphrase_is_collapsed(self) -> None:
+        text = (
+            "Bailiffs reportedly seized digital records before a court case over the Land Rover Defender. "
+            "Bailiffs acting for Jaguar Land Rover raided BYD offices over whether its Defender clone infringes intellectual property rights. "
+            "Bailiffs reportedly seized digital records from BYD offices in the Netherlands before that court case."
+        )
+        collapsed = collapse_repeated_text(text)
+        self.assertEqual(collapsed.lower().count("seized digital records"), 1)
+        self.assertIn("Defender", collapsed)
+
+    def test_distinct_sentences_are_kept(self) -> None:
+        text = (
+            "The company raised its full-year guidance after earnings beat estimates. "
+            "Shares rose in early trading as investors reacted to the outlook."
+        )
+        collapsed = collapse_repeated_text(text)
+        self.assertIn("guidance", collapsed)
+        self.assertIn("Shares rose", collapsed)
+
+    def test_no_abbreviation_is_not_a_sentence_break(self) -> None:
+        glance = first_sentence(
+            "Georgia is No. 1 for the second time this season after a win over Ole Miss."
+        )
+        self.assertIn("No. 1", glance)
+        self.assertIn("Ole Miss", glance)
+
+    def test_ordinary_options_is_not_a_derivative(self) -> None:
+        lines = definitions_for_text(
+            "US employers keep passing rising healthcare costs to workers. There are better options."
+        )
+        self.assertFalse(any(line.lower().startswith("options:") for line in lines))
+        self.assertFalse(any("buy or sell" in line.lower() for line in lines))
+
+    def test_overview_drops_a_sentence_that_does_not_support_the_headline(self) -> None:
+        card = TopicCard(
+            topic_id=1,
+            domain="business",
+            rank=1,
+            title="Thames Water should be placed in temporary public control",
+            executive_summary="A wardrobe era has begun in Westminster this season.",
+            why_it_matters="",
+            key_takeaways=[],
+            research_snapshot="",
+            further_research=[],
+            definitions=[],
+            sources=[],
+        )
+        line = overview_line(card)
+        self.assertIn("Thames Water", line)
+        self.assertNotIn("wardrobe", line.lower())
 
 
 if __name__ == "__main__":

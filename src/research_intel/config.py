@@ -1,3 +1,10 @@
+"""Settings, feed list, and path helpers.
+
+Feeds, domains, retention windows, and the morning cutoff live here so the
+rest of the pipeline does not hard-code them. Values in `.env` override the
+path and retention defaults. Load happens at import time.
+"""
+
 from __future__ import annotations
 
 import os
@@ -14,6 +21,7 @@ DOMAINS = ("markets", "business", "world", "sports", "movies")
 
 @dataclass(frozen=True)
 class Feed:
+    """One publisher feed: display name, which brief section it belongs to, and the RSS URL."""
     name: str
     domain: str
     feed_url: str
@@ -86,6 +94,7 @@ BRIEF_FILES_KEEP = int(os.getenv("BRIEF_FILES_KEEP", "4"))
 
 
 def database_path() -> Path:
+    """SQLite file. Relative paths are resolved from the repository root."""
     raw = os.getenv("DATABASE_PATH", "data/research_intel.db")
     path = Path(raw)
     if not path.is_absolute():
@@ -94,6 +103,7 @@ def database_path() -> Path:
 
 
 def briefs_dir() -> Path:
+    """Folder where Markdown and JSON briefs are written."""
     raw = os.getenv("BRIEFS_DIR", "data/briefs")
     path = Path(raw)
     if not path.is_absolute():
@@ -102,6 +112,7 @@ def briefs_dir() -> Path:
 
 
 def logs_dir() -> Path:
+    """Scheduler log folder. Created if it does not exist."""
     path = ROOT / "data" / "logs"
     path.mkdir(parents=True, exist_ok=True)
     return path
@@ -109,6 +120,7 @@ def logs_dir() -> Path:
 
 @dataclass(frozen=True)
 class EmailSettings:
+    """SMTP settings. `enabled` is true only when a recipient and an app password are set."""
     enabled: bool
     host: str
     port: int
@@ -120,6 +132,7 @@ class EmailSettings:
 
 
 def email_settings() -> EmailSettings:
+    """Read email settings from the environment. Blank password or recipient disables sending."""
     password = (os.getenv("EMAIL_APP_PASSWORD") or "").replace(" ", "").strip()
     mail_to = (os.getenv("EMAIL_TO") or "").strip()
     mail_from = (os.getenv("EMAIL_FROM") or mail_to).strip()

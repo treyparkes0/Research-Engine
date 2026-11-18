@@ -1,9 +1,12 @@
+"""CLI: print how many articles and topics are stored, by section."""
+
 from __future__ import annotations
 
 from research_intel.db import init_db
 
 
 def main() -> None:
+    """Print stored article and topic counts."""
     conn = init_db()
     total = conn.execute("SELECT COUNT(*) AS n FROM articles").fetchone()["n"]
     sources = conn.execute("SELECT COUNT(*) AS n FROM sources WHERE active = 1").fetchone()["n"]

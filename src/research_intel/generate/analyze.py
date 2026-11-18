@@ -1,4 +1,9 @@
-"""Analysis written only from feed leads. It does not add facts the leads do not state."""
+"""Turn feed blurbs into the sentences a card is allowed to say.
+
+The paragraph comes from one article whose headline matches the card. Other
+articles stay in the link list and are not blended in. Enrichment is appended
+only when each sentence supports the headline. Nothing here invents a fact.
+"""
 
 from __future__ import annotations
 
@@ -6,7 +11,7 @@ import re
 from html import unescape
 
 from research_intel.ingest.enrich import Enrichment
-from research_intel.process.text import jaccard, tokenize
+from research_intel.process.text import jaccard, same_story, tokenize
 
 _JUNK = re.compile(
     r"sign up|newsletter|subscribe|click here|photo:|live blog",
@@ -15,6 +20,7 @@ _JUNK = re.compile(
 
 
 def _clean(text: str | None) -> str:
+    """Strip HTML and collapse whitespace."""
     if not text:
         return ""
     text = unescape(text)
@@ -24,36 +30,64 @@ def _clean(text: str | None) -> str:
 
 
 def _tokens(text: str) -> set[str]:
+    """Lowercase words, used to spot a repeated or paraphrased sentence."""
     return set(re.findall(r"[a-z0-9]+", text.lower()))
 
 
 def _near_duplicate(left: str, right: str) -> bool:
+    """True when two sentences say the same thing in different words."""
     a, b = _tokens(left), _tokens(right)
     if not a or not b:
         return True
-    overlap = len(a & b) / min(len(a), len(b))
-    return overlap >= 0.72
+    shared = len(a & b)
+    overlap = shared / min(len(a), len(b))
+    if overlap >= 0.72:
+        return True
+    # Paraphrase of the same blurb pasted twice (shared facts, different wording).
+    return shared >= 6 and overlap >= 0.5
 
 
-_BOILER = re.compile(
-    r"tmdb audience score|early reviews and audience scores|"
-    r"opens in the us/uk theatrical|theatrical release date is",
-    re.IGNORECASE,
+_ABBREV = re.compile(
+    r"\b(Mr|Mrs|Ms|Dr|Inc|Ltd|Jr|Sr|U\.S|U\.K|Gen|No|St|Mt|Sen|Rep|Gov|Col|Lt|Sgt|Prof|vs|Fig)\."
 )
 
 
+def _protect_abbreviations(text: str) -> str:
+    """Hide periods in Mr., No., U.S., and similar so they are not treated as sentence ends."""
+    return _ABBREV.sub(lambda match: match.group(0).replace(".", "\u0001"), text)
+
+
+def _split_sentences(text: str) -> list[str]:
+    """Split on sentence punctuation after abbreviations have been protected."""
+    protected = _protect_abbreviations(text)
+    parts = re.split(r"(?<=[.!?])\s+", protected)
+    return [part.replace("\u0001", ".").strip() for part in parts if part.strip()]
+
+
 def collapse_repeated_text(text: str) -> str:
-    """Drop a blurb that is pasted twice in one feed field."""
-    words = text.split()
+    """Drop a blurb that is pasted twice, including a close paraphrase."""
+    cleaned = _clean(text)
+    if not cleaned:
+        return ""
+    sentences = _split_sentences(cleaned)
+    if len(sentences) >= 2:
+        kept: list[str] = []
+        for sentence in sentences:
+            if any(_near_duplicate(sentence, prior) for prior in kept):
+                continue
+            kept.append(sentence)
+        return " ".join(kept).strip()
+
+    words = cleaned.split()
     if len(words) < 16:
-        return text
+        return cleaned
     lowered = [word.lower() for word in words]
     for size in range(min(28, len(words) // 2), 7, -1):
         head = lowered[:size]
         for start in range(size, len(words) - size + 1):
             if lowered[start : start + size] == head:
                 return " ".join(words[:start]).strip()
-    return text
+    return cleaned
 
 
 _SENTENCE_START = frozenset(
@@ -65,6 +99,7 @@ def separate_glued_sentences(text: str) -> str:
     """Put a period back when a feed omits it before a new sentence."""
 
     def _fix(match: re.Match[str]) -> str:
+        """Insert the missing period only when the next word starts a new sentence."""
         word = match.group(3)
         if word not in _SENTENCE_START:
             return match.group(0)
@@ -85,16 +120,10 @@ def sentence_supports_title(title: str, sentence: str) -> bool:
 
 
 def _sentences(text: str) -> list[str]:
-    cleaned = _clean(text)
-    cleaned = re.sub(
-        r"\b(Mr|Mrs|Ms|Dr|Inc|Ltd|Jr|Sr|Bros|U\.S|U\.K|Gen)\.",
-        lambda match: match.group(0).replace(".", "\u0001"),
-        cleaned,
-    )
-    parts = re.split(r"(?<=[.!?])\s+", cleaned)
-    parts = [part.replace("\u0001", ".") for part in parts]
+    """Sentences from a blurb, skipping any that repeat an earlier sentence."""
+    cleaned = collapse_repeated_text(separate_glued_sentences(_clean(text)))
     out: list[str] = []
-    for part in parts:
+    for part in _split_sentences(cleaned):
         sentence = part.strip()
         if len(sentence) < 40 or _JUNK.search(sentence):
             continue
@@ -108,14 +137,12 @@ def _gather(
     *,
     require_support: bool,
 ) -> list[tuple[str, str]]:
+    """Collect on-story sentences, dropping ones that only restate the headline."""
     facts: list[tuple[str, str]] = []
     seen: list[str] = [title]
     for name, text in chunks:
-        cleaned = separate_glued_sentences(collapse_repeated_text(_clean(text)))
+        cleaned = _clean(text)
         for sentence in _sentences(cleaned):
-            sentence = collapse_repeated_text(sentence)
-            if _BOILER.search(sentence):
-                continue
             if require_support and not sentence_supports_title(title, sentence):
                 continue
             if any(_near_duplicate(sentence, prior) for prior in seen):
@@ -127,38 +154,58 @@ def _gather(
     return facts
 
 
+def _on_story(title: str, source_title: str) -> bool:
+    """True when this source headline is the card's story, not a neighbor that got clustered loosely."""
+    if same_story(title, source_title):
+        return True
+    return jaccard(tokenize(title), tokenize(source_title)) >= 0.45
+
+
 def collect_facts(
     title: str,
     sources: list,
     enrichment: Enrichment | None = None,
 ) -> list[tuple[str, str]]:
-    """Sentences from the matching article. Enrichment is used only if it stays on topic."""
+    """
+    Sentences from one on-story feed blurb.
+
+    Other articles stay in the source list. They are not blended into the
+    paragraph, so a neighboring story cannot change what the headline says.
+    Enrichment is appended only when each sentence supports the headline.
+    """
     ranked = sorted(
-        [src for src in sources if src.summary],
-        key=lambda src: jaccard(tokenize(title), tokenize(src.title)),
+        [src for src in sources if getattr(src, "summary", None)],
+        key=lambda src: (
+            1 if same_story(title, src.title) else 0,
+            jaccard(tokenize(title), tokenize(src.title)),
+        ),
         reverse=True,
     )
-    chunks = [(src.source_name, src.summary) for src in ranked]
+    anchor = next((src for src in ranked if _on_story(title, src.title)), None)
+    facts: list[tuple[str, str]] = []
+    if anchor is not None:
+        facts = _gather(title, [(anchor.source_name, anchor.summary)], require_support=False)
     if enrichment and enrichment.extra_text:
-        chunks.append((enrichment.provider, enrichment.extra_text))
+        extra = _gather(title, [(enrichment.provider, enrichment.extra_text)], require_support=True)
+        seen = [sentence for _, sentence in facts]
+        for name, sentence in extra:
+            if any(_near_duplicate(sentence, prior) for prior in seen):
+                continue
+            facts.append((name, sentence))
+            seen.append(sentence)
+            if len(facts) >= 5:
+                break
+    return facts[:5]
 
-    facts = _gather(title, chunks, require_support=True)
-    if facts:
-        return facts
-    # The labeled article can still be thin. Use that source only, never a stray enrichment hit.
-    if ranked:
-        return _gather(title, [(ranked[0].source_name, ranked[0].summary)], require_support=False)
-    return []
 
-
-def what_happened(title: str, facts: list[tuple[str, str]]) -> str:
+def what_happened(title: str, facts: list[tuple[str, str]], *, limit: int = 2) -> str:
     """Two sentences from the matching leads. The title is already the heading."""
     if not facts:
         return (
             f"The feeds only repeat the headline \"{title.rstrip('.')}.\" "
             "Open a source link for the full story."
         )
-    return collapse_repeated_text(" ".join(sentence for _, sentence in facts[:2]))
+    return collapse_repeated_text(" ".join(sentence for _, sentence in facts[:limit]))
 
 
 _FORWARD = re.compile(
@@ -183,24 +230,11 @@ def why_it_matters(facts: list[tuple[str, str]], title: str = "") -> str:
 
 
 def what_is_open(facts: list[tuple[str, str]], source_count: int) -> str:
-    outlets = "one outlet" if source_count <= 1 else f"{source_count} outlets"
+    """Factual coverage note. It does not guess at missing consequences."""
+    outlets = "1 outlet" if source_count <= 1 else f"{source_count} outlets"
     if not facts:
-        return (
-            f"Only {outlets} covered this so far, and the blurb is short. "
-            "It is too early to say who wins, how big the effect is, or what happens next."
-        )
-    forward = next(
-        (
-            sentence
-            for _, sentence in facts
-            if re.search(r"\b(will|could|ahead|next|if|unless|until)\b", sentence, re.I)
-        ),
-        "",
+        return f"Feed coverage: {outlets}. The saved blurb does not add facts beyond the headline."
+    return (
+        f"Feed coverage: {outlets}. "
+        "The summary uses that feed text and does not add facts from outside it."
     )
-    gap = (
-        f"This is based on {outlets}. We still may not know the other side’s full response, "
-        "how large the effect is, or the next official step unless the reporting already says so."
-    )
-    if forward:
-        return f"{gap} One forward-looking line from the feeds: {forward}"
-    return gap

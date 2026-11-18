@@ -1,7 +1,17 @@
+"""Optional movie listings from TMDB.
+
+Skipped when TMDB_API_KEY is empty. Keeps English-language titles that open
+this week or are newly in theaters. The stored blurb is a release line, an
+audience score when TMDB has one, and one plot sentence. The release date is
+what the brief shows; fetch time is what keeps the slate inside the lookback
+window.
+"""
+
 from __future__ import annotations
 
 import hashlib
 import os
+import re
 import sqlite3
 from datetime import datetime, timedelta, timezone
 
@@ -19,15 +29,18 @@ TMDB_SITE = "https://www.themoviedb.org/movie"
 
 
 def _api_key() -> str:
+    """TMDB key from the environment, or an empty string when movies should be skipped."""
     return (os.getenv("TMDB_API_KEY") or "").strip()
 
 
 def _content_hash(title: str, summary: str, url: str) -> str:
+    """Hash of the stored movie fields. Same idea as the RSS hash."""
     blob = f"{title.strip()}|{summary.strip()}|{url.strip()}".encode("utf-8")
     return hashlib.sha256(blob).hexdigest()
 
 
 def _ensure_tmdb_source(conn: sqlite3.Connection) -> int:
+    """Make sure the synthetic TMDB source row exists and return its id."""
     feed_url = "tmdb://movies"
     conn.execute(
         """
@@ -50,6 +63,7 @@ def _ensure_tmdb_source(conn: sqlite3.Connection) -> int:
 
 
 def _get(client: httpx.Client, path: str, params: dict | None = None) -> dict:
+    """GET one TMDB path with the API key attached."""
     key = _api_key()
     query = {"api_key": key}
     if params:
@@ -85,28 +99,43 @@ def _classify_kind(release: str | None, list_kind: str) -> str | None:
     return None
 
 
-def _movie_summary(movie: dict, kind: str, review_bits: list[str] | None = None) -> str:
+def _short_plot(overview: str, limit: int = 240) -> str:
+    """First plot sentence, cut only when it is still longer than the limit."""
+    text = " ".join((overview or "").split())
+    if not text:
+        return ""
+    sentence = re.split(r"(?<=[.!?])\s+", text, maxsplit=1)[0].strip()
+    if len(sentence) <= limit:
+        return sentence
+    cut = sentence[: limit - 3].rsplit(" ", 1)[0].rstrip(".,;:")
+    return cut + "..."
+
+
+def _movie_summary(movie: dict, kind: str) -> str:
+    """Release line, optional audience score, and a short plot. Not a full overview."""
     title = (movie.get("title") or movie.get("name") or "Untitled").strip()
     overview = (movie.get("overview") or "").strip()
-    release = (movie.get("release_date") or "").strip()
+    release = (movie.get("release_date") or "").strip()[:10]
     rating = movie.get("vote_average")
     votes = movie.get("vote_count")
     if kind == "This Week":
-        parts = [f"[This Week] {title} opens in the US/UK theatrical window this week."]
+        lead = f"{title} is scheduled to open in theaters"
     else:
-        parts = [f"[Now Playing] {title} is in theaters — early reviews and audience scores are in."]
-    if release:
-        parts.append(f"Theatrical release date is {release}.")
+        lead = f"{title} is currently in theaters"
+    lead += f" on {release}." if release else "."
+    parts = [lead]
     if rating is not None and votes:
-        parts.append(f"TMDB audience score is {float(rating):.1f}/10 from {votes} votes.")
-    if overview:
-        parts.append(overview)
-    if review_bits:
-        parts.append("Viewer notes: " + " ".join(review_bits[:2]))
+        parts.append(
+            f"TMDB lists an audience score of {float(rating):.1f} out of 10 from {int(votes)} ratings."
+        )
+    plot = _short_plot(overview)
+    if plot:
+        parts.append(plot)
     return " ".join(parts)
 
 
 def _display_title(title: str, kind: str) -> str:
+    """Prefix the title with [This Week] or [Now Playing], without stacking prefixes."""
     prefix = "[This Week]" if kind == "This Week" else "[Now Playing]"
     # Avoid double-prefix on refresh.
     clean = title
@@ -116,22 +145,31 @@ def _display_title(title: str, kind: str) -> str:
     return f"{prefix} {clean}"
 
 
+def _published_stamp(movie: dict) -> str:
+    """Use the theatrical date when TMDB has one. Otherwise use the current time."""
+    release = (movie.get("release_date") or "").strip()
+    if len(release) >= 10:
+        return f"{release[:10]}T12:00:00+00:00"
+    return datetime.now(timezone.utc).isoformat()
+
+
 def _upsert_movie(
     conn: sqlite3.Connection,
     source_id: int,
     movie: dict,
     kind: str,
-    review_bits: list[str] | None = None,
 ) -> bool:
+    """Insert or update one TMDB title in the articles table."""
     movie_id = movie.get("id")
     raw_title = (movie.get("title") or movie.get("name") or "").strip()
     if not movie_id or not raw_title:
         return False
     title = _display_title(raw_title, kind)
     url = f"{TMDB_SITE}/{movie_id}"
-    summary = _movie_summary(movie, kind, review_bits)
-    # Use fetch time so the topic picker keeps this week's slate visible.
-    published = datetime.now(timezone.utc).isoformat()
+    summary = _movie_summary(movie, kind)
+    # Release date is what the brief should show. fetched_at still refreshes,
+    # and the topic picker uses fetched_at for the movies window.
+    published = _published_stamp(movie)
     content_hash = _content_hash(title, summary, url)
     cursor = conn.execute(
         """
@@ -156,10 +194,11 @@ def _upsert_movie(
 
 
 def _movie_details(client: httpx.Client, movie_id: int) -> dict:
+    """Full movie record, which carries language and production countries the list endpoints omit."""
     return _get(client, f"/movie/{movie_id}")
 
 
-def run_tmdb_ingest(conn: sqlite3.Connection, review_sample: int = 12) -> dict[str, int]:
+def run_tmdb_ingest(conn: sqlite3.Connection) -> dict[str, int]:
     """
     Pull US now-playing + upcoming, keep English-speaking (US/UK/etc.) titles
     that open this week or are newly in theaters (review slate).
@@ -231,24 +270,11 @@ def run_tmdb_ingest(conn: sqlite3.Connection, review_sample: int = 12) -> dict[s
 
             kept = list(unique.items())
             kept_urls: list[str] = []
-            for idx, (mid, (kind, movie)) in enumerate(kept):
-                review_bits: list[str] = []
-                if idx < review_sample:
-                    try:
-                        reviews = _get(client, f"/movie/{mid}/reviews", {"page": 1, "language": "en"})
-                        for rev in (reviews.get("results") or [])[:2]:
-                            content = (rev.get("content") or "").strip().replace("\n", " ")
-                            if content:
-                                review_bits.append(
-                                    content[:220].rstrip() + ("..." if len(content) > 220 else "")
-                                )
-                    except Exception:
-                        review_bits = []
-
+            for mid, (kind, movie) in kept:
                 seen_count += 1
                 url = f"{TMDB_SITE}/{mid}"
                 kept_urls.append(url)
-                if _upsert_movie(conn, source_id, movie, kind, review_bits):
+                if _upsert_movie(conn, source_id, movie, kind):
                     new_count += 1
 
             # Drop stale TMDB rows (foreign / old releases) so they leave the brief.
